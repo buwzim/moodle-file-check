@@ -1,0 +1,179 @@
+# Moodle File Check
+
+# Bergische Universität Wuppertal
+# Zentrum für Informations- und Medienverarbeitung
+
+# Author: Sebastian Sennewald, 2017
+
+# Tested with Moodle 3.3 and PostgreSQL 9.6 on Debian 9.1
+
+# Use this script to check if the files listed
+# in the database are available on the filesystem
+# vice versa.
+
+
+
+# Path to your moodle files dir
+MDL_FILES_PATH="/opt/moodle/daten/filedir"
+
+# DB settings
+DBUSER="postgres"
+DBNAME="moodle"
+DBPREFIX="mdl_"
+
+# Init variables
+FILES_IN_DB_CHECKED=0
+FILES_IN_FS_CHECKED=0
+MISSING_IN_FS=0
+MISSING_IN_DB=0
+WRONG_HASHES=0
+
+
+# Check if dir exists and if the script can access it
+if test ! -d $MDL_FILES_PATH
+then
+        printf "%s \n" "Moodle files directory does not exists" 1>&2
+        exit 1
+fi
+
+if test ! -x $MDL_FILES_PATH
+then
+        printf "%s \n" "Moodle files directory can not be accessed" 1>&2
+        exit 1
+fi
+
+
+# Ask what shall be checked
+echo " "
+printf "%s \n" "Which check do you want to run?"
+echo " "
+printf "%s \n" "1) Check database against filesystem?"
+printf "%s \n" "2) Check filesystem against database?"
+echo " "
+printf "%s" "Mode: "
+read CHECK_MODE
+
+        until test "$CHECK_MODE" -eq 1 -o "$CHECK_MODE" -eq 2
+        do
+                printf "%s" "Please enter 1 or 2: "
+                read CHECK_MODE
+        done
+
+
+printf "%s" "Check SHA1 values? (y/n) "
+read CHECK_SHA1
+
+        until test "$CHECK_SHA1" = "y" -o "$CHECK_SHA1" = "n"
+        do
+                printf "%s" "Please enter y or n: "
+                read CHECK_SHA1
+        done
+
+
+
+# check db against fs
+if test $CHECK_MODE -eq 1
+then
+
+        # Get number of file hashes from DB
+        NUM_FILES_IN_DB=$(su -c "cd; psql -t -d $DBNAME -c \"SELECT DISTINCT COUNT(*) contenthash FROM ${DBPREFIX}files\"" $DBUSER)
+
+        if test "$NUM_FILES_IN_DB" -eq 0
+        then
+                printf "%s \n" "DB returned no files" 1>&2
+                exit 2
+        else
+                printf "Number of files in DB: %d \n" $NUM_FILES_IN_DB
+        fi
+
+
+                for HASH in $(su -c "cd; psql -t -d $DBNAME -c \"select distinct contenthash from ${DBPREFIX}files\"" $DBUSER)
+                do
+                        # Extract moodle dir names from hash
+                        PART1=${HASH:0:2}
+                        PART2=${HASH:2:2}
+
+                        # Count how many files can not be found
+                        if test ! -e "$MDL_FILES_PATH/$PART1/$PART2/$HASH"
+                        then
+                                MISSING_IN_FS=$((MISSING_IN_FS+1))
+                                printf "Missing file in FS: %s \n" $HASH > $0.log
+                        else
+                                if test $CHECK_SHA1 = "y"
+                                then
+                                        # Generate SHA1 sum from file content
+                                        cd $MDL_FILES_PATH/$PART1/$PART2/
+
+                                        if test $(sha1sum $HASH | awk '{print $1}') != $HASH
+                                        then
+                                                WRONG_HASHES=$((WRONG_HASHES+1))
+                                                printf "Wrong hash: %s \n" $HASH > $0.log
+                                        fi
+                                fi
+
+                        fi
+
+                        FILES_IN_FS_CHECKED=$((FILES_IN_FS_CHECKED+1))
+                        printf "Checked in FS: %d \r" $FILES_IN_FS_CHECKED
+                done
+        fi
+
+
+# check FS against DB
+if test $CHECK_MODE -eq 2
+then
+        for HASHDIR1 in $(ls -d $MDL_FILES_PATH/*/)
+        do
+                for HASHDIR2 in $(ls -d $HASHDIR1/*)
+                do
+                        for F2SEARCH in $(ls $HASHDIR2/)
+                        do
+                                SQLRES=$(su -c "cd; psql -t -d $DBNAME -c \"SELECT COUNT(*) contenthash FROM ${DBPREFIX}files WHERE contenthash = '$F2SEARCH'\"" $DBUSER)
+
+                                if test "$SQLRES" -eq 0
+                                then
+                                        MISSING_IN_DB=$((MISSING_IN_DB+1))
+                                        printf "Missing file in DB: %s \n" $F2SEARCH > $0.log
+                                fi
+
+
+                                if test $CHECK_SHA1 = "y"
+                                then
+                                        # Generate SHA1 sum from file content
+                                        cd $HASHDIR2
+
+                                        if test $(sha1sum $F2SEARCH | awk '{print $1}') != $F2SEARCH
+                                        then
+                                                WRONG_HASHES=$((WRONG_HASHES+1))
+                                                printf "Wrong hash: %s \n" $F2SEARCH > $0.log
+                                        fi
+                                fi
+
+
+                                FILES_IN_DB_CHECKED=$((FILES_IN_DB_CHECKED+1))
+                                printf "Files in DB checked: %d \r" $FILES_IN_DB_CHECKED
+
+                        done
+                done
+        done
+fi
+
+
+
+if test $CHECK_MODE -eq 1
+then
+        printf "Missing files in FS: %d \n" $MISSING_IN_FS
+fi
+
+
+if test $CHECK_MODE -eq 2
+then
+        printf "Missing files in DB: %s \n" $MISSING_IN_DB
+fi
+
+if test "$CHECK_SHA1" = "y"
+then
+        printf "Wrong hashes: %s \n" $WRONG_HASHES
+fi
+
+printf "%s \n" "Done."

@@ -97,7 +97,7 @@ then
                         if test ! -e "$MDL_FILES_PATH/$PART1/$PART2/$HASH"
                         then
                                 MISSING_IN_FS=$((MISSING_IN_FS+1))
-                                printf "Missing file in FS: %s \n" $HASH > $0.log
+                                printf "Missing file in FS: %s \n" $HASH >> $0.log
                         else
                                 if test $CHECK_SHA1 = "y"
                                 then
@@ -107,7 +107,7 @@ then
                                         if test $(sha1sum $HASH | awk '{print $1}') != $HASH
                                         then
                                                 WRONG_HASHES=$((WRONG_HASHES+1))
-                                                printf "Wrong hash: %s \n" $HASH > $0.log
+                                                printf "Wrong hash: %s \n" $HASH >> $0.log
                                         fi
                                 fi
 
@@ -133,7 +133,7 @@ then
                                 if test "$SQLRES" -eq 0
                                 then
                                         MISSING_IN_DB=$((MISSING_IN_DB+1))
-                                        printf "Missing file in DB: %s \n" $F2SEARCH > $0.log
+                                        printf "Missing file in DB: %s \n" $F2SEARCH >> $0.log
                                 fi
 
 
@@ -145,7 +145,7 @@ then
                                         if test $(sha1sum $F2SEARCH | awk '{print $1}') != $F2SEARCH
                                         then
                                                 WRONG_HASHES=$((WRONG_HASHES+1))
-                                                printf "Wrong hash: %s \n" $F2SEARCH > $0.log
+                                                printf "Wrong hash: %s \n" $F2SEARCH >> $0.log
                                         fi
                                 fi
 
